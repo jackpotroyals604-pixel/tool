@@ -1,0 +1,17 @@
+{
+  "name": "jackpotroyals-marketing-tool",
+  "version": "1.0.0",
+  "description": "Jackpot Royals Email Marketing & Lead Verifier Tool",
+  "main": "app.py",
+  "scripts": {
+    "start": "python3 app.py"
+  },
+  "keywords": [
+    "email",
+    "marketing",
+    "jackpotroyals",
+    "verifier"
+  ],
+  "author": "Jackpot Royals",
+  "license": "ISC"
+}

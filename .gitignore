@@ -1,0 +1,34 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Environment & local OS files
+.DS_Store
+.env
+.env.local
+*.env
+
+# Logs
+*.log
+app.log
+
+# SQLite / Databases
+*.db
+*.sqlite
+*.sqlite3
+campaign_data.db
+
+# Campaign State
+campaign_state.json
+*.state.json
+
+# Client uploads and lead lists
+uploads/*
+!uploads/.gitkeep
+*.csv
+*.xlsx
+*.xls
+
+# Scratch directory
+scratch/

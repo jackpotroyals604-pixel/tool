@@ -1,0 +1,21 @@
+{
+  "smtp_host": "smtp.hostinger.com",
+  "smtp_port": 465,
+  "use_ssl": true,
+  "sender_email": "verified@jackpotroyals.com",
+  "sender_password": "",
+  "sender_name": "Jackpot Royals VIP",
+  "reply_to": "verified@jackpotroyals.com",
+  "tracking_base_url": "http://127.0.0.1:5051",
+  "min_delay_seconds": 3,
+  "max_delay_seconds": 6,
+  "batch_size": 50,
+  "batch_pause_seconds": 60,
+  "daily_limit": 10000,
+  "target_url": "https://jackpotroyals.com",
+  "excel_file": "stripe_emails.csv",
+  "active_file": "jackpot_all_players_2026-09-15.csv",
+  "file_queue": [],
+  "min_cashout": 35,
+  "freeplay_amount": 5
+}

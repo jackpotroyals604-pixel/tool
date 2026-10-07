@@ -1,0 +1,17 @@
+[Unit]
+Description=Jackpot Royals Email Marketing & Automation Tool
+After=network.target
+
+[Service]
+User=root
+WorkingDirectory=/var/www/tool.jackpotroyals.com
+# Use the virtualenv's gunicorn or python
+ExecStart=/var/www/tool.jackpotroyals.com/venv/bin/gunicorn --workers 1 --threads 4 --bind 127.0.0.1:5051 --timeout 300 app:app
+Restart=always
+RestartSec=5
+StandardOutput=append:/var/www/tool.jackpotroyals.com/app.log
+StandardError=append:/var/www/tool.jackpotroyals.com/app.log
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target
