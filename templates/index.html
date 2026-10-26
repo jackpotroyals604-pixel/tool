@@ -256,6 +256,7 @@
           <div class="progress-header">
             <div class="campaign-state">
               <span id="campaign-badge" class="badge badge-idle"><i class="fa-solid fa-circle"></i> IDLE / READY</span>
+              <span id="progress-round-badge" class="badge badge-primary" style="display:none;"><i class="fa-solid fa-repeat"></i> <span id="stat-progress-round">Round 1 of 1</span></span>
               <span class="active-file-indicator">Target File: <strong id="active-file-label">client sheet.xlsx</strong></span>
               <span id="sending-indicator" class="sending-text" style="display:none;">
                 <i class="fa-solid fa-spinner fa-spin"></i> Dispatching to: <code id="current-sending-email">...</code>
@@ -287,6 +288,47 @@
                 <button id="btn-switch-file-quick" class="btn btn-sm btn-outline" type="button">
                   <i class="fa-solid fa-exchange-alt"></i> Change File
                 </button>
+              </div>
+
+              <!-- Campaign Repeat / Loop Settings (Kitni Dafa Chalani Hai) -->
+              <div class="campaign-repeat-box">
+                <div class="campaign-repeat-header">
+                  <span class="campaign-repeat-title">
+                    <i class="fa-solid fa-repeat text-primary"></i> Campaign Runs / Cycles (Kitni Dafa Chalani Hai)
+                  </span>
+                  <span id="campaign-round-badge" class="badge badge-info" style="display:none;">
+                    <i class="fa-solid fa-sync fa-spin"></i> <span id="round-badge-text">Round 1 of 1</span>
+                  </span>
+                </div>
+                <div class="campaign-repeat-grid">
+                  <div class="form-group" style="margin-bottom: 0;">
+                    <label style="font-size: 0.8rem; font-weight: 600; color: var(--text-secondary); margin-bottom: 5px; display: block;">Total Runs (Rounds):</label>
+                    <select id="campaign-rounds-select" class="form-select">
+                      <option value="1">1 Time (Single Run - Default)</option>
+                      <option value="2">2 Times (Auto-restarts after 1st run)</option>
+                      <option value="3">3 Times (Auto-restarts 3 runs)</option>
+                      <option value="5">5 Times</option>
+                      <option value="10">10 Times</option>
+                      <option value="custom">Custom Count (Apni marzi se)...</option>
+                      <option value="0">Continuous Loop (Non-stop repeat)</option>
+                    </select>
+                    <div id="custom-rounds-box" style="display: none; margin-top: 6px;">
+                      <input type="number" id="campaign-rounds-custom" class="form-input" min="1" max="1000" placeholder="e.g. 4" value="4">
+                    </div>
+                  </div>
+
+                  <div class="form-group" style="margin-bottom: 0;">
+                    <label style="font-size: 0.8rem; font-weight: 600; color: var(--text-secondary); margin-bottom: 5px; display: block;">Delay Between Runs (Cooldown):</label>
+                    <select id="campaign-round-delay-select" class="form-select">
+                      <option value="10">10 Seconds (Fast / Immediate)</option>
+                      <option value="60" selected>1 Minute (Recommended break)</option>
+                      <option value="300">5 Minutes</option>
+                      <option value="900">15 Minutes</option>
+                      <option value="1800">30 Minutes</option>
+                      <option value="3600">1 Hour</option>
+                    </select>
+                  </div>
+                </div>
               </div>
 
               <div class="action-buttons-group">

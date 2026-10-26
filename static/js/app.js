@@ -54,6 +54,24 @@ document.addEventListener('DOMContentLoaded', () => {
   const templateSelectorControl = document.getElementById('template-selector-control');
   const ctrlSenderAccountSelect = document.getElementById('ctrl-sender-account-select');
   const btnSwitchFileQuick = document.getElementById('btn-switch-file-quick');
+  
+  // Campaign Repeat / Loop Elements
+  const campaignRoundsSelect = document.getElementById('campaign-rounds-select');
+  const customRoundsBox = document.getElementById('custom-rounds-box');
+  const campaignRoundsCustom = document.getElementById('campaign-rounds-custom');
+  const campaignRoundDelaySelect = document.getElementById('campaign-round-delay-select');
+  const progressRoundBadge = document.getElementById('progress-round-badge');
+  const statProgressRound = document.getElementById('stat-progress-round');
+  const campaignRoundBadge = document.getElementById('campaign-round-badge');
+  const roundBadgeText = document.getElementById('round-badge-text');
+
+  if (campaignRoundsSelect) {
+    campaignRoundsSelect.addEventListener('change', () => {
+      if (customRoundsBox) {
+        customRoundsBox.style.display = campaignRoundsSelect.value === 'custom' ? 'block' : 'none';
+      }
+    });
+  }
 
   // DOM Elements - Test Sender
   const testEmailInput = document.getElementById('test-email-input');
@@ -796,14 +814,38 @@ document.addEventListener('DOMContentLoaded', () => {
         progressBarFill.style.width = `${pct}%`;
       }
 
+      // Round indicators
+      const totalR = data.total_rounds !== undefined ? data.total_rounds : 1;
+      const currR = data.current_round !== undefined ? data.current_round : 1;
+      const roundLabel = totalR === 0 ? `Round ${currR} of ∞ (Non-Stop)` : (totalR > 1 ? `Round ${currR} of ${totalR}` : '');
+
+      if (progressRoundBadge) {
+        if (data.is_running && roundLabel) {
+          progressRoundBadge.style.display = 'inline-flex';
+          if (statProgressRound) statProgressRound.textContent = roundLabel;
+        } else {
+          progressRoundBadge.style.display = 'none';
+        }
+      }
+
+      if (campaignRoundBadge) {
+        if (data.is_running && roundLabel) {
+          campaignRoundBadge.style.display = 'inline-flex';
+          if (roundBadgeText) roundBadgeText.textContent = roundLabel;
+        } else {
+          campaignRoundBadge.style.display = 'none';
+        }
+      }
+
       if (data.is_running) {
+        const roundPill = roundLabel ? ` [${totalR === 0 ? 'R' + currR + '/∞' : 'R' + currR + '/' + totalR}]` : '';
         if (data.is_paused) {
           if (campaignBadge) {
             campaignBadge.className = 'badge badge-paused';
-            campaignBadge.innerHTML = '<i class="fa-solid fa-pause"></i> CAMPAIGN PAUSED';
+            campaignBadge.innerHTML = `<i class="fa-solid fa-pause"></i> CAMPAIGN PAUSED${roundPill}`;
           }
           if (btnStart) {
-            btnStart.innerHTML = `<i class="fa-solid fa-play"></i> Resume Campaign (${data.pending} Remaining)`;
+            btnStart.innerHTML = `<i class="fa-solid fa-play"></i> Resume Campaign (${data.pending} Remaining)${roundPill}`;
             btnStart.disabled = false;
           }
           if (btnPause) btnPause.disabled = true;
@@ -812,10 +854,10 @@ document.addEventListener('DOMContentLoaded', () => {
         } else {
           if (campaignBadge) {
             campaignBadge.className = 'badge badge-running';
-            campaignBadge.innerHTML = '<i class="fa-solid fa-bolt"></i> CAMPAIGN RUNNING';
+            campaignBadge.innerHTML = `<i class="fa-solid fa-bolt"></i> CAMPAIGN RUNNING${roundPill}`;
           }
           if (btnStart) {
-            btnStart.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Dispatching (${data.pending} Left)...`;
+            btnStart.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Dispatching (${data.pending} Left)${roundPill}...`;
             btnStart.disabled = true;
           }
           if (btnPause) btnPause.disabled = false;
@@ -838,9 +880,9 @@ document.addEventListener('DOMContentLoaded', () => {
         
         if (btnStart) {
           if (data.pending === 0 && data.total > 0) {
-            btnStart.innerHTML = '<i class="fa-solid fa-circle-check"></i> All Leads Completed (100%)';
-            btnStart.disabled = true;
-            btnStart.classList.add('btn-disabled');
+            btnStart.innerHTML = '<i class="fa-solid fa-play"></i> Start Campaign (Re-send All Leads)';
+            btnStart.disabled = false;
+            btnStart.classList.remove('btn-disabled');
           } else if (data.sent > 0) {
             btnStart.innerHTML = `<i class="fa-solid fa-play"></i> Send Remaining (${Number(data.pending).toLocaleString()} Pending Leads)`;
             btnStart.disabled = false;
@@ -1000,11 +1042,28 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // ==================== 8. CAMPAIGN CONTROLS ====================
   btnStart.addEventListener('click', async () => {
-    const isResume = parseInt(statSent.textContent.replace(/,/g, ''), 10) > 0;
+    const pendingCount = parseInt(statPending.textContent.replace(/,/g, ''), 10) || 0;
+    const sentCount = parseInt(statSent.textContent.replace(/,/g, ''), 10) || 0;
+    const isResume = sentCount > 0 && pendingCount > 0;
+
+    // Read user repeat / loop settings
+    let totalRounds = 1;
+    const roundsVal = campaignRoundsSelect ? campaignRoundsSelect.value : '1';
+    if (roundsVal === 'custom') {
+      totalRounds = parseInt(campaignRoundsCustom ? campaignRoundsCustom.value : '1', 10) || 1;
+    } else {
+      totalRounds = parseInt(roundsVal, 10);
+    }
+    const roundDelaySeconds = campaignRoundDelaySelect ? parseInt(campaignRoundDelaySelect.value, 10) : 60;
+
+    const roundsDesc = totalRounds === 0 
+      ? 'Continuous Loop (repeat non-stop)' 
+      : (totalRounds > 1 ? `${totalRounds} runs / cycles (auto-repeats after each run)` : '1 time');
+
     const qInfo = fileQueue && fileQueue.length > 0 ? ` (Queue active with ${fileQueue.length} remaining list[s])` : '';
     const confirmMsg = isResume 
-      ? `Resume sending to the remaining ${statPending.textContent} pending leads in '${activeFile}'${qInfo}?` 
-      : `Start sending emails to list '${activeFile}'${qInfo}?`;
+      ? `Resume sending to the remaining ${statPending.textContent} pending leads in '${activeFile}'${qInfo}? (Total Runs: ${roundsDesc})` 
+      : `Start sending emails to list '${activeFile}'${qInfo} for ${roundsDesc}?`;
 
     if (!confirm(confirmMsg)) return;
 
@@ -1021,7 +1080,9 @@ document.addEventListener('DOMContentLoaded', () => {
           plain_body: editorPlain.value,
           file_name: activeFile,
           file_queue: fileQueue,
-          sender_account_id: selectedSenderAcc
+          sender_account_id: selectedSenderAcc,
+          total_rounds: totalRounds,
+          round_delay_seconds: roundDelaySeconds
         })
       });
       const data = await res.json();

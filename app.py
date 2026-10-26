@@ -665,16 +665,29 @@ def start_campaign():
         file_name = data.get("file_name", manager.active_file)
         file_queue = data.get("file_queue")
         sender_account_id = data.get("sender_account_id") or data.get("account_id")
+        total_rounds = int(data.get("total_rounds", 1))
+        round_delay_seconds = int(data.get("round_delay_seconds", 60))
         
         if not subject:
             return jsonify({"success": False, "error": "Please provide an email subject."}), 400
         if not html_body and not plain_body:
             return jsonify({"success": False, "error": "Email body cannot be empty."}), 400
             
-        ok = manager.start_campaign(subject, html_body, plain_body, sender_name, file_name=file_name, file_queue=file_queue, sender_account_id=sender_account_id)
+        ok = manager.start_campaign(
+            subject, 
+            html_body, 
+            plain_body, 
+            sender_name, 
+            file_name=file_name, 
+            file_queue=file_queue, 
+            sender_account_id=sender_account_id,
+            total_rounds=total_rounds,
+            round_delay_seconds=round_delay_seconds
+        )
         if ok:
             q_msg = f" with {len(manager.file_queue)} queued file(s)" if manager.file_queue else ""
-            return jsonify({"success": True, "message": f"Campaign started successfully on list '{manager.active_file}'{q_msg}!"})
+            rounds_msg = f" for {total_rounds} round(s)" if total_rounds > 1 else (" on continuous loop" if total_rounds == 0 else "")
+            return jsonify({"success": True, "message": f"Campaign started successfully on list '{manager.active_file}'{q_msg}{rounds_msg}!"})
         else:
             return jsonify({"success": False, "error": "Campaign is already running or paused. Resume or stop it first."}), 400
     except Exception as e:

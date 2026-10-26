@@ -130,6 +130,17 @@ def init_db():
             created_at TEXT
         )
     """)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS campaign_sends (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            recipient_id INTEGER,
+            email TEXT,
+            file_name TEXT,
+            sender_email TEXT,
+            sent_at TEXT,
+            round INTEGER DEFAULT 1
+        )
+    """)
     
     # Check if columns exist in recipients table
     cursor.execute("PRAGMA table_info(recipients)")
@@ -186,8 +197,15 @@ def get_sender_accounts():
     today_str = time.strftime("%Y-%m-%d")
     for acc in accounts:
         em = acc["sender_email"]
-        cursor.execute("SELECT COUNT(*) FROM recipients WHERE sender_email = ? AND status = 'sent' AND sent_at LIKE ?", (em, f"{today_str}%"))
-        acc["sent_today"] = cursor.fetchone()[0]
+        cursor.execute("SELECT COUNT(*) FROM campaign_sends WHERE sender_email = ? AND sent_at LIKE ?", (em, f"{today_str}%"))
+        s_today = cursor.fetchone()[0]
+        cursor.execute("""
+            SELECT COUNT(*) FROM recipients 
+            WHERE sender_email = ? AND status = 'sent' AND sent_at LIKE ? 
+            AND id NOT IN (SELECT recipient_id FROM campaign_sends WHERE recipient_id IS NOT NULL)
+        """, (em, f"{today_str}%"))
+        l_today = cursor.fetchone()[0]
+        acc["sent_today"] = s_today + l_today
         acc["remaining_today"] = max(0, acc["daily_limit"] - acc["sent_today"])
     conn.close()
     return accounts
@@ -610,6 +628,12 @@ class EmailMarketingManager:
             self.sender_name = state.get("sender_name")
             self.preferred_sender_account_id = state.get("preferred_sender_account_id")
 
+        self.total_rounds = state.get("total_rounds", 1)
+        self.current_round = state.get("current_round", 1)
+        self.round_delay_seconds = state.get("round_delay_seconds", 60)
+        self.initial_active_file = state.get("initial_active_file", self.active_file)
+        self.initial_file_queue = state.get("initial_file_queue", list(self.file_queue))
+
         load_file_recipients(self.active_file)
 
         # Automatic Resume if campaign was actively running when system rebooted / restarted
@@ -626,7 +650,9 @@ class EmailMarketingManager:
                             sender_name=self.sender_name,
                             file_name=self.active_file,
                             file_queue=self.file_queue,
-                            sender_account_id=self.preferred_sender_account_id
+                            sender_account_id=self.preferred_sender_account_id,
+                            total_rounds=self.total_rounds,
+                            round_delay_seconds=self.round_delay_seconds
                         )
             threading.Thread(target=_auto_resume, daemon=True).start()
 
@@ -735,8 +761,15 @@ class EmailMarketingManager:
         total_clicks = click_row[1] if click_row else 0
 
         today_str = time.strftime("%Y-%m-%d")
-        cursor.execute("SELECT COUNT(*) FROM recipients WHERE status = 'sent' AND sent_at LIKE ?", (f"{today_str}%",))
-        today_sent = cursor.fetchone()[0]
+        cursor.execute("SELECT COUNT(*) FROM campaign_sends WHERE sent_at LIKE ?", (f"{today_str}%",))
+        s_today = cursor.fetchone()[0]
+        cursor.execute("""
+            SELECT COUNT(*) FROM recipients 
+            WHERE status = 'sent' AND sent_at LIKE ? 
+            AND id NOT IN (SELECT recipient_id FROM campaign_sends WHERE recipient_id IS NOT NULL)
+        """, (f"{today_str}%",))
+        l_today = cursor.fetchone()[0]
+        today_sent = s_today + l_today
         
         conn.close()
 
@@ -772,7 +805,10 @@ class EmailMarketingManager:
             "current_sender_name": getattr(self, "sender_name", ""),
             "accounts_count": len(accounts),
             "enabled_accounts_count": len(enabled_accounts),
-            "active_sender_email": active_account or "No Active Account"
+            "active_sender_email": active_account or "No Active Account",
+            "total_rounds": getattr(self, "total_rounds", 1),
+            "current_round": getattr(self, "current_round", 1),
+            "round_delay_seconds": getattr(self, "round_delay_seconds", 60)
         }
 
     def get_clicks_data(self, search=None, limit=100, offset=0):
@@ -838,7 +874,9 @@ class EmailMarketingManager:
             self.is_running = False
             self.is_paused = False
             self.stop_requested = False
-            save_campaign_state({"is_running": False, "is_paused": False, "updated_at": time.strftime("%Y-%m-%d %H:%M:%S")})
+            self.total_rounds = 1
+            self.current_round = 1
+            save_campaign_state({"is_running": False, "is_paused": False, "total_rounds": 1, "current_round": 1, "updated_at": time.strftime("%Y-%m-%d %H:%M:%S")})
             
             conn = get_db()
             cursor = conn.cursor()
@@ -912,13 +950,14 @@ class EmailMarketingManager:
         log_event(f"Test email successfully sent to {to_email} via {from_addr}", level="SUCCESS", recipient=to_email)
         return True
 
-    def start_campaign(self, subject, html_body, plain_body, sender_name=None, file_name=None, file_queue=None, sender_account_id=None):
+    def start_campaign(self, subject, html_body, plain_body, sender_name=None, file_name=None, file_queue=None, sender_account_id=None, total_rounds=1, round_delay_seconds=60):
         with self.lock:
             if self.is_running:
                 if self.is_paused:
                     self.is_paused = False
                     save_campaign_state({"is_paused": False, "is_running": True, "updated_at": time.strftime("%Y-%m-%d %H:%M:%S")})
-                    log_event("Campaign Resumed.")
+                    r_str = f"Round {self.current_round}" if getattr(self, "total_rounds", 1) == 0 else f"Round {self.current_round} of {self.total_rounds}"
+                    log_event(f"▶️ Campaign Resumed ({r_str}).")
                     return True
                 return False
 
@@ -934,6 +973,24 @@ class EmailMarketingManager:
             if file_name:
                 self.active_file = file_name
                 load_file_recipients(file_name)
+
+            self.total_rounds = max(0, int(total_rounds))
+            self.current_round = 1
+            self.round_delay_seconds = max(0, int(round_delay_seconds))
+            self.initial_active_file = self.active_file
+            self.initial_file_queue = list(self.file_queue)
+
+            # Auto-reset if active file has 0 pending leads so campaign can immediately dispatch
+            conn = get_db()
+            c = conn.cursor()
+            c.execute("SELECT COUNT(*) FROM recipients WHERE file_name = ? AND status = 'pending'", (self.active_file,))
+            if c.fetchone()[0] == 0:
+                files_to_reset = [self.active_file] + (self.file_queue or [])
+                for fn in files_to_reset:
+                    c.execute("UPDATE recipients SET status = 'pending', attempts = 0 WHERE file_name = ?", (fn,))
+                conn.commit()
+                log_event(f"🔄 List '{self.active_file}' had no pending leads. Reset all leads to Pending for new campaign run.", level="INFO")
+            conn.close()
 
             self.is_running = True
             self.is_paused = False
@@ -952,6 +1009,11 @@ class EmailMarketingManager:
                 "sender_name": sender_name,
                 "active_file": self.active_file,
                 "file_queue": self.file_queue,
+                "initial_active_file": self.initial_active_file,
+                "initial_file_queue": self.initial_file_queue,
+                "total_rounds": self.total_rounds,
+                "current_round": self.current_round,
+                "round_delay_seconds": self.round_delay_seconds,
                 "preferred_sender_account_id": self.preferred_sender_account_id,
                 "updated_at": time.strftime("%Y-%m-%d %H:%M:%S")
             })
@@ -960,7 +1022,8 @@ class EmailMarketingManager:
             self.worker_thread.start()
             q_info = f" (Queue remaining: {' ➔ '.join(self.file_queue)})" if self.file_queue else ""
             acc_info = f" via Account #{self.preferred_sender_account_id}" if self.preferred_sender_account_id and str(self.preferred_sender_account_id) != "auto" else " (Auto Sender Rotation)"
-            log_event(f"🚀 Campaign Started on '{self.active_file}'{acc_info}!{q_info}")
+            repeat_info = f" [Repeat: {self.total_rounds} Rounds]" if self.total_rounds > 1 else (" [Repeat: Continuous Loop]" if self.total_rounds == 0 else "")
+            log_event(f"🚀 Campaign Started on '{self.active_file}'{acc_info}!{q_info}{repeat_info}")
             return True
 
     def pause_campaign(self):
@@ -979,7 +1042,15 @@ class EmailMarketingManager:
                 self.is_running = False
                 self.is_paused = False
                 self.current_email = ""
-                save_campaign_state({"is_running": False, "is_paused": False, "updated_at": time.strftime("%Y-%m-%d %H:%M:%S")})
+                self.total_rounds = 1
+                self.current_round = 1
+                save_campaign_state({
+                    "is_running": False, 
+                    "is_paused": False, 
+                    "total_rounds": 1,
+                    "current_round": 1,
+                    "updated_at": time.strftime("%Y-%m-%d %H:%M:%S")
+                })
                 log_event("⏹️ Campaign Stopped by user.")
                 return True
             return False
@@ -1029,8 +1100,15 @@ class EmailMarketingManager:
                 today_str = time.strftime("%Y-%m-%d")
                 conn_chk = get_db()
                 c_chk = conn_chk.cursor()
-                c_chk.execute("SELECT COUNT(*) FROM recipients WHERE status = 'sent' AND sent_at LIKE ?", (f"{today_str}%",))
-                today_total_sent = c_chk.fetchone()[0]
+                c_chk.execute("SELECT COUNT(*) FROM campaign_sends WHERE sent_at LIKE ?", (f"{today_str}%",))
+                s_today = c_chk.fetchone()[0]
+                c_chk.execute("""
+                    SELECT COUNT(*) FROM recipients 
+                    WHERE status = 'sent' AND sent_at LIKE ? 
+                    AND id NOT IN (SELECT recipient_id FROM campaign_sends WHERE recipient_id IS NOT NULL)
+                """, (f"{today_str}%",))
+                l_today = c_chk.fetchone()[0]
+                today_total_sent = s_today + l_today
                 conn_chk.close()
 
                 if today_total_sent >= global_limit:
@@ -1124,15 +1202,65 @@ class EmailMarketingManager:
                         log_event(f"📁 List '{prev_file}' complete! Automatically advancing to next queued file: '{next_file}' ({len(self.file_queue)} remaining in queue).", level="SUCCESS")
                         continue
                     else:
-                        log_event(f"🎉 All emails in list '{prev_file}' and campaign queue processed! Campaign complete.", level="SUCCESS")
-                        self.is_running = False
-                        self.is_paused = False
-                        save_campaign_state({
-                            "is_running": False,
-                            "is_paused": False,
-                            "updated_at": time.strftime("%Y-%m-%d %H:%M:%S")
-                        })
-                        break
+                        should_repeat = (self.total_rounds == 0) or (self.current_round < self.total_rounds)
+                        if should_repeat:
+                            r_info = f"Round {self.current_round}" if self.total_rounds == 0 else f"Round {self.current_round} of {self.total_rounds}"
+                            next_r_info = f"Round {self.current_round + 1}" if self.total_rounds == 0 else f"Round {self.current_round + 1} of {self.total_rounds}"
+                            log_event(f"🏁 {r_info} completed! Auto-preparing {next_r_info}...", level="SUCCESS")
+                            
+                            all_files = [self.initial_active_file] + (self.initial_file_queue or [])
+                            conn_r = get_db()
+                            c_r = conn_r.cursor()
+                            for fn in all_files:
+                                c_r.execute("UPDATE recipients SET status = 'pending', attempts = 0 WHERE file_name = ?", (fn,))
+                            conn_r.commit()
+                            conn_r.close()
+                            
+                            self.active_file = self.initial_active_file
+                            self.file_queue = list(self.initial_file_queue or [])
+                            load_file_recipients(self.active_file)
+                            
+                            self.current_round += 1
+                            
+                            cfg = load_config()
+                            cfg["excel_file"] = self.active_file
+                            cfg["file_queue"] = self.file_queue
+                            save_config(cfg)
+                            save_campaign_state({
+                                "active_file": self.active_file,
+                                "file_queue": self.file_queue,
+                                "current_round": self.current_round,
+                                "total_rounds": self.total_rounds,
+                                "updated_at": time.strftime("%Y-%m-%d %H:%M:%S")
+                            })
+                            
+                            delay = int(self.round_delay_seconds)
+                            if delay > 0:
+                                log_event(f"⏳ Cooldown interval: Waiting {delay}s before {next_r_info} begins...", level="INFO")
+                                waited = 0
+                                while waited < delay and not self.stop_requested:
+                                    while self.is_paused and not self.stop_requested:
+                                        time.sleep(1)
+                                    time.sleep(1)
+                                    waited += 1
+                                    
+                            if self.stop_requested:
+                                break
+                                
+                            log_event(f"🚀 {next_r_info} AUTO-STARTED on list '{self.active_file}'!", level="SUCCESS")
+                            continue
+                        else:
+                            rounds_msg = f"All {self.total_rounds} round(s)" if self.total_rounds > 1 else "Campaign"
+                            log_event(f"🎉 {rounds_msg} on '{prev_file}' completed successfully! Finished.", level="SUCCESS")
+                            self.is_running = False
+                            self.is_paused = False
+                            save_campaign_state({
+                                "is_running": False,
+                                "is_paused": False,
+                                "current_round": self.current_round,
+                                "updated_at": time.strftime("%Y-%m-%d %H:%M:%S")
+                            })
+                            break
 
                 rec_id = row["id"]
                 to_email = row["email"]
@@ -1191,6 +1319,10 @@ class EmailMarketingManager:
                         SET status = 'sent', sent_at = ?, attempts = ?, error_msg = NULL, sender_email = ? 
                         WHERE id = ?
                     """, (now_str, attempts, from_addr, rec_id))
+                    c.execute("""
+                        INSERT INTO campaign_sends (recipient_id, email, file_name, sender_email, sent_at, round)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                    """, (rec_id, to_email, self.active_file, from_addr, now_str, self.current_round))
                     conn.commit()
                     conn.close()
 

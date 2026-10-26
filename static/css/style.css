@@ -1089,6 +1089,49 @@ body {
   margin-top: 2px;
 }
 
+/* Campaign Repeat & Loop Settings Box */
+.campaign-repeat-box {
+  background: var(--bg-card-subtle);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  padding: 14px 16px;
+  margin-bottom: 16px;
+  transition: all 0.2s ease;
+}
+
+.campaign-repeat-box:hover {
+  border-color: rgba(79, 70, 229, 0.35);
+  box-shadow: var(--shadow-sm);
+}
+
+.campaign-repeat-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.campaign-repeat-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.campaign-repeat-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+@media (max-width: 640px) {
+  .campaign-repeat-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* Banner Alert Box */
 .anti-spam-alert {
   background: #eff6ff;
